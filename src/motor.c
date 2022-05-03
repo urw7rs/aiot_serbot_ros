@@ -121,3 +121,151 @@ int set_twist(int file,
 
   return 0;
 }
+
+int linux_kbhit(void){
+  struct termios oldt, newt;
+    int ch;
+
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+
+    newt.c_lflag = ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
+    ch = getchar();
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    return ch;
+}
+
+void start_serial(void){
+  int serial_port = open("/dev/ttyUSB0", O_RDWR);
+
+    if (serial_port < 0) {
+      printf("Error %i from open: %s\n", errno, strerror(errno));
+    }
+
+    struct termios tty;
+
+    if (tcgetattr(serial_port, &tty) != 0) {
+      printf("Error %i from tcgetattr: %s\n", errno, strerror(errno));
+    }
+
+
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag |= CS8;
+>>  tty.c_cflag &= ~CRTSCTS;
+    tty.c_cflag |= CREAD | CLOCAL;
+
+    tty.c_lflag &= ~ICANON;
+    tty.c_lflag &= ~ECHO;
+    tty.c_lflag &= ~ECHOE;
+    tty.c_lflag &= ~ECHONL;
+    tty.c_iflag &= ~ISIG;
+    tty.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL);
+
+    tty.c_oflag &= ~OPOST;
+    tty.c_oflag &= ~ONLCR;
+
+    tty.c_cc[VTIME] = 0;
+    tty.c_cc[VMIN] = 0;
+
+    cfsetispeed(&tty, B115200);
+    if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
+      printf("Error %i from tcsetattr: %s\n", errno, strerror(errno));
+      return 1;
+    }
+
+
+    char read_buf [256];
+    memset(&read_buf, '\0', sizeof(read_buf));
+
+    // Write to serial port
+--  char* msg = "1.2,3.4\n";
+    int cnt = 0;
+    char buffer[256];
+    unsigned char key[10];
+    unsigned char key_mode = 's';
+    float steering = 0.0;
+    float speed = 0.0;
+    int loop_cnt = 1;
+
+    while (key_mode != 'q') {
+  //    key[0] = fgetc(stdin);
+      key[0] = linux_kbhit();
+      int i_key = key[0];
+      if(key[0] >= 'a' && key[0] <= 'z'){
+        key_mode = key[0];
+    }
+  //    if(key[0] == 's'){
+  //      key_mode = 's'; // plus steering mode
+  //    }
+  //    else if (key[0] == 'd'){
+  //      key_mode = 'd'; // minus steering mode
+  //    }
+  //    else if (key[0] == 'k'){
+  //      key_mode = 'k'; // speed mode
+  //    }
+  //    else if (key[0] == 'l'){
+  //      key_mode = 'l'; // loop_cnt 지정 mode(유지시간)
+  //    }
+      int speed_cnt = 0;
+      if(key[0] >= '0'&& key[0] <= '9'){
+        if(key_mode == 's'){
+          steering = i_key - 48;
+        }
+        else if (key_mode == 'd'){
+          steering = 48 - i_key;
+        }
+        else if (key_mode == 'k'){
+          speed_cnt = loop_cnt;
+          speed = i_key - 48;
+        }
+        else if (key_mode == 'l'){
+          loop_cnt = i_key - 48;
+        }
+      }
+      for (int i = 0; i<speed_cnt; i++){ // loop_cnt초 만큼 loop
+      sprintf(buffer,"%d,%.1f,%.1f\n",cnt++, steering, speed);
+        printf("Send : %s",buffer);
+        write(serial_port, buffer, strlen(buffer));
+        sleep(1);
+  //    usleep(100000);
+        read(serial_port, &read_buf, sizeof(read_buf));
+        printf("%s\n",read_buf);
+      }
+      // 속도 0으로 멈춤
+        sprintf(buffer,"%d,%.1f,%.1f\n",cnt++, steering, 0.0);
+        printf("Send : %s",buffer);
+        write(serial_port, buffer, strlen(buffer));
+        sleep(1);
+  //    usleep(100000);
+        read(serial_port, &read_buf, sizeof(read_buf));
+        printf("%s\n",read_buf);
+
+    }
+
+    // Allocate memory for read buffer, set size according to your needs
+
+    // Normally you wouldn't do this memset() call, but since we will just receive
+    // ASCII data for this example, we'll set everything to 0 so we can
+    // call printf() easily.
+
+    // Read bytes. The behaviour of read() (e.g. does it block?,
+    // how long does it block for?) depends on the configuration
+    // settings above, specifically VMIN and VTIME
+    int num_bytes = read(serial_port, &read_buf, sizeof(read_buf));
+
+    // n is the number of bytes read. n may be 0 if no bytes were received, and can also be -1   to signal an error.
+    if (num_bytes < 0) {
+      printf("Error reading: %s", strerror(errno));
+      return 1;
+    }
+
+    // Here we assume we received ASCII data, but you might be sending raw bytes (in that case  , don't try and
+    // print it to the screen like this!)
+    printf("Read %i bytes. Received message: %s", num_bytes, read_buf);
+
+    close(serial_port);
+    return 0; // success
+}

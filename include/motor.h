@@ -10,4 +10,8 @@ int set_motor_speed(int file, int *speed);
 /* set twist */
 int set_twist(int file, float w, float v_x, float v_y);
 
+int linux_kbhit(void){};
+
+void start_serial(void){};
+
 #endif
